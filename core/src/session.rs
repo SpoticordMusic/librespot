@@ -3,7 +3,6 @@ use std::{
     future::Future,
     io,
     pin::Pin,
-    process::exit,
     sync::{Arc, Weak},
     task::{Context, Poll},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -330,16 +329,18 @@ impl Session {
         );
     }
 
-    fn check_catalogue(attributes: &UserAttributes) {
+    #[must_use]
+    fn check_catalogue(attributes: &UserAttributes) -> bool {
         if let Some(account_type) = attributes.get("type") {
             if account_type != "premium" {
                 error!("librespot does not support {:?} accounts.", account_type);
                 info!("Please support Spotify and your artists and sign up for a premium account.");
 
-                // TODO: logout instead of exiting
-                exit(1);
+                return false;
             }
         }
+
+        true
     }
 
     pub fn send_packet(&self, cmd: PacketType, data: Vec<u8>) -> Result<(), Error> {
@@ -449,7 +450,11 @@ impl Session {
     pub fn set_user_attribute(&self, key: &str, value: &str) -> Option<String> {
         let mut dummy_attributes = UserAttributes::new();
         dummy_attributes.insert(key.to_owned(), value.to_owned());
-        Self::check_catalogue(&dummy_attributes);
+        if !Self::check_catalogue(&dummy_attributes) {
+            self.shutdown();
+
+            return None;
+        }
 
         self.0
             .data
@@ -460,7 +465,11 @@ impl Session {
     }
 
     pub fn set_user_attributes(&self, attributes: UserAttributes) {
-        Self::check_catalogue(&attributes);
+        if !Self::check_catalogue(&attributes) {
+            self.shutdown();
+
+            return;
+        }
 
         self.0.data.write().user_data.attributes.extend(attributes)
     }
@@ -674,7 +683,11 @@ where
                 }
 
                 trace!("Received product info: {:#?}", user_attributes);
-                Session::check_catalogue(&user_attributes);
+                if !Session::check_catalogue(&user_attributes) {
+                    session.shutdown();
+
+                    return Ok(());
+                }
 
                 session.0.data.write().user_data.attributes = user_attributes;
                 Ok(())
