@@ -480,7 +480,11 @@ impl Player {
 
             // While PlayerInternal is written as a future, it still contains blocking code.
             // It must be run by using block_on() in a dedicated thread.
-            let runtime = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .enable_all()
+                .build()
+                .expect("Failed to create Tokio runtime");
             runtime.block_on(internal);
 
             debug!("PlayerInternal thread finished.");
@@ -2238,6 +2242,12 @@ impl PlayerInternal {
 impl Drop for PlayerInternal {
     fn drop(&mut self) {
         debug!("drop PlayerInternal[{}]", self.player_id);
+
+        // TODO: Find a better way
+        // Info: Something in the way librespot works may cause the below code to hang forever
+        //       It is not yet clear why this happens
+        //       For now, we just ignore dangling threads, as to not hang the application
+        return;
 
         let handles: Vec<thread::JoinHandle<()>> = {
             // waiting for the thread while holding the mutex would result in a deadlock
